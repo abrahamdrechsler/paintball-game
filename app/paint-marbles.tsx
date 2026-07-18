@@ -42,6 +42,7 @@ type Spike = { side: Side; pos: number };
 type Particle = { x: number; y: number; vx: number; vy: number; r: number; color: string; life: number; maxLife: number };
 type MusicEngine = { master: GainNode; timer: number; nextNoteTime: number; step: number };
 type RocketSequence = { phase: "launch" | "target" | "impact"; x: number; y: number; r: number };
+type WhiteZone = { x: number; y: number; r: number };
 
 const RAIL = 18;
 const TAU = Math.PI * 2;
@@ -386,7 +387,7 @@ function railSide(x: number, y: number, width: number, height: number): Side | n
 export default function PaintMarbles() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const paintRef = useRef<HTMLCanvasElement | null>(null);
-  const cleanWhiteRef = useRef(false);
+  const whiteZonesRef = useRef<WhiteZone[]>([]);
   const ballsRef = useRef<Ball[]>([]);
   const spikesRef = useRef<Spike[]>([]);
   const particlesRef = useRef<Particle[]>([]);
@@ -685,7 +686,7 @@ export default function PaintMarbles() {
     setScore(0);
     setRockets(0);
     setTeddyCount(0);
-    cleanWhiteRef.current = false;
+    whiteZonesRef.current = [];
     clearPaint();
     const { width, height } = sizeRef.current;
     ballsRef.current = [
@@ -798,6 +799,12 @@ export default function PaintMarbles() {
 
       const sx = sizeRef.current.width / oldWidth;
       const sy = sizeRef.current.height / oldHeight;
+      const radiusScale = Math.min(sx, sy);
+      for (const zone of whiteZonesRef.current) {
+        zone.x *= Number.isFinite(sx) ? sx : 1;
+        zone.y *= Number.isFinite(sy) ? sy : 1;
+        zone.r *= Number.isFinite(radiusScale) ? radiusScale : 1;
+      }
       for (const ball of ballsRef.current) {
         ball.x *= Number.isFinite(sx) ? sx : 1;
         ball.y *= Number.isFinite(sy) ? sy : 1;
@@ -914,15 +921,17 @@ export default function PaintMarbles() {
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      if (cleanWhiteRef.current) {
-        ctx.fillStyle = "#fff";
-      } else {
-        const bg = ctx.createLinearGradient(0, 0, width, height);
-        bg.addColorStop(0, "#fffaf0");
-        bg.addColorStop(1, "#f1eadf");
-        ctx.fillStyle = bg;
-      }
+      const bg = ctx.createLinearGradient(0, 0, width, height);
+      bg.addColorStop(0, "#fffaf0");
+      bg.addColorStop(1, "#f1eadf");
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#fff";
+      for (const zone of whiteZonesRef.current) {
+        ctx.beginPath();
+        ctx.arc(zone.x, zone.y, zone.r, 0, TAU);
+        ctx.fill();
+      }
       ctx.save();
       ctx.globalAlpha = 0.97;
       if (paintRef.current?.width) ctx.drawImage(paintRef.current, 0, 0, width, height);
@@ -1077,7 +1086,7 @@ export default function PaintMarbles() {
   const launchRocket = () => {
     if (rocketActiveRef.current || rocketsRef.current <= 0) return;
     const { width, height } = sizeRef.current;
-    const radius = clamp(width / 6, 58, 240);
+    const radius = clamp(width / 5, 68, 280);
     const allowance = radius * 0.46;
     const target: RocketSequence = {
       phase: "launch",
@@ -1104,9 +1113,20 @@ export default function PaintMarbles() {
         const hit = ballsRef.current.filter((ball) => Math.hypot(ball.x - target.x, ball.y - target.y) <= target.r + ball.r * 0.35);
         for (const ball of hit) explodeBall(ball, false);
         const paint = paintRef.current;
-        if (paint) paint.getContext("2d")?.clearRect(0, 0, paint.width, paint.height);
-        cleanWhiteRef.current = true;
-        setHint(hit.length ? `Rocket impact — ${hit.length} marble${hit.length === 1 ? "" : "s"} popped!` : "Rocket missed — the board is squeaky clean");
+        const pctx = paint?.getContext("2d");
+        if (paint && pctx) {
+          const scaleX = paint.width / sizeRef.current.width;
+          const scaleY = paint.height / sizeRef.current.height;
+          pctx.save();
+          pctx.scale(scaleX, scaleY);
+          pctx.beginPath();
+          pctx.arc(target.x, target.y, target.r, 0, TAU);
+          pctx.clip();
+          pctx.clearRect(target.x - target.r, target.y - target.r, target.r * 2, target.r * 2);
+          pctx.restore();
+        }
+        whiteZonesRef.current.push({ x: target.x, y: target.y, r: target.r });
+        setHint(hit.length ? `Rocket impact — ${hit.length} marble${hit.length === 1 ? "" : "s"} popped!` : "Rocket missed — only the target zone was wiped clean");
       }, 1540),
       window.setTimeout(() => {
         setRocketSequence(null);
