@@ -41,6 +41,7 @@ type Ball = {
 type Spike = { side: Side; pos: number };
 type Particle = { x: number; y: number; vx: number; vy: number; r: number; color: string; life: number; maxLife: number };
 type MusicEngine = { master: GainNode; timer: number; nextNoteTime: number; step: number };
+type RocketSequence = { phase: "launch" | "target" | "impact"; x: number; y: number; r: number };
 
 const RAIL = 18;
 const TAU = Math.PI * 2;
@@ -385,6 +386,7 @@ function railSide(x: number, y: number, width: number, height: number): Side | n
 export default function PaintMarbles() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const paintRef = useRef<HTMLCanvasElement | null>(null);
+  const cleanWhiteRef = useRef(false);
   const ballsRef = useRef<Ball[]>([]);
   const spikesRef = useRef<Spike[]>([]);
   const particlesRef = useRef<Particle[]>([]);
@@ -402,6 +404,10 @@ export default function PaintMarbles() {
   const maxSizeRef = useRef(2.2);
   const audioRef = useRef<AudioContext | null>(null);
   const musicRef = useRef<MusicEngine | null>(null);
+  const scoreRef = useRef(0);
+  const rocketsRef = useRef(0);
+  const rocketActiveRef = useRef(false);
+  const rocketTimersRef = useRef<number[]>([]);
   const pausedRef = useRef(false);
   const pausedBeforeTreasureRef = useRef(false);
   const [score, setScore] = useState(0);
@@ -413,6 +419,8 @@ export default function PaintMarbles() {
   const [treasureEnabled, setTreasureEnabled] = useState(true);
   const [teddyCount, setTeddyCount] = useState(0);
   const [treasureReveal, setTreasureReveal] = useState(false);
+  const [rockets, setRockets] = useState(0);
+  const [rocketSequence, setRocketSequence] = useState<RocketSequence | null>(null);
   const [sizeMix, setSizeMix] = useState(true);
   const [sizePanelOpen, setSizePanelOpen] = useState(false);
   const [sizeVariability, setSizeVariability] = useState(60);
@@ -498,6 +506,7 @@ export default function PaintMarbles() {
 
   useEffect(() => () => {
     stopMusic();
+    for (const timer of rocketTimersRef.current) window.clearTimeout(timer);
     void audioRef.current?.close();
   }, [stopMusic]);
 
@@ -551,6 +560,95 @@ export default function PaintMarbles() {
     splatter.start(now + Math.random() * 0.012);
   }, []);
 
+  const playRocketLaunch = useCallback(() => {
+    if (!soundEnabledRef.current) return;
+    const audio = ensureAudio();
+    const play = () => {
+      const now = audio.currentTime;
+      const master = audio.createGain();
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(0.32, now + 0.08);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.86);
+      master.connect(audio.destination);
+
+      const engine = audio.createOscillator();
+      const engineFilter = audio.createBiquadFilter();
+      engine.type = "sawtooth";
+      engine.frequency.setValueAtTime(72, now);
+      engine.frequency.exponentialRampToValueAtTime(210, now + 0.72);
+      engineFilter.type = "lowpass";
+      engineFilter.frequency.setValueAtTime(360, now);
+      engineFilter.frequency.exponentialRampToValueAtTime(1300, now + 0.72);
+      engine.connect(engineFilter).connect(master);
+      engine.start(now);
+      engine.stop(now + 0.9);
+
+      const noiseBuffer = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.9), audio.sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * (0.35 + 0.65 * i / noiseData.length);
+      const rush = audio.createBufferSource();
+      const rushFilter = audio.createBiquadFilter();
+      rush.buffer = noiseBuffer;
+      rushFilter.type = "bandpass";
+      rushFilter.frequency.setValueAtTime(430, now);
+      rushFilter.frequency.exponentialRampToValueAtTime(1900, now + 0.75);
+      rushFilter.Q.value = 0.7;
+      rush.connect(rushFilter).connect(master);
+      rush.start(now);
+    };
+    if (audio.state === "running") play();
+    else void audio.resume().then(play);
+  }, [ensureAudio]);
+
+  const playRocketImpact = useCallback(() => {
+    if (!soundEnabledRef.current) return;
+    const audio = audioRef.current;
+    if (!audio || audio.state !== "running") return;
+    const now = audio.currentTime;
+    const master = audio.createGain();
+    master.gain.setValueAtTime(0.5, now);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.72);
+    master.connect(audio.destination);
+
+    const boom = audio.createOscillator();
+    const boomGain = audio.createGain();
+    boom.type = "sine";
+    boom.frequency.setValueAtTime(110, now);
+    boom.frequency.exponentialRampToValueAtTime(34, now + 0.55);
+    boomGain.gain.setValueAtTime(0.75, now);
+    boomGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+    boom.connect(boomGain).connect(master);
+    boom.start(now);
+    boom.stop(now + 0.7);
+
+    const noiseBuffer = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.58), audio.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) noiseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noiseData.length, 1.25);
+    const crack = audio.createBufferSource();
+    const crackFilter = audio.createBiquadFilter();
+    crack.buffer = noiseBuffer;
+    crackFilter.type = "lowpass";
+    crackFilter.frequency.value = 1400;
+    crack.connect(crackFilter).connect(master);
+    crack.start(now);
+  }, []);
+
+  const awardSplats = useCallback((amount: number) => {
+    if (amount <= 0) return;
+    const previous = scoreRef.current;
+    const next = previous + amount;
+    const earned = Math.floor(next / 25) - Math.floor(previous / 25);
+    scoreRef.current = next;
+    setScore(next);
+    if (earned > 0) {
+      setRockets((current) => {
+        const updated = current + earned;
+        rocketsRef.current = updated;
+        return updated;
+      });
+    }
+  }, []);
+
   const addBall = useCallback(() => {
     const { width, height } = sizeRef.current;
     const ball = makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01);
@@ -574,12 +672,20 @@ export default function PaintMarbles() {
   }, []);
 
   const resetGame = useCallback(() => {
+    for (const timer of rocketTimersRef.current) window.clearTimeout(timer);
+    rocketTimersRef.current = [];
+    rocketActiveRef.current = false;
+    setRocketSequence(null);
     ballsRef.current = [];
     spikesRef.current = [];
     particlesRef.current = [];
     nextIdRef.current = 0;
+    scoreRef.current = 0;
+    rocketsRef.current = 0;
     setScore(0);
+    setRockets(0);
     setTeddyCount(0);
+    cleanWhiteRef.current = false;
     clearPaint();
     const { width, height } = sizeRef.current;
     ballsRef.current = [
@@ -592,9 +698,9 @@ export default function PaintMarbles() {
     setHint("Tap a rail to plant a spike");
   }, [applyCurrentSizes, clearPaint, syncCount]);
 
-  const explodeBall = useCallback((ball: Ball) => {
+  const explodeBall = useCallback((ball: Ball, withPopSound = true) => {
     const blastScale = 0.75 + blastPowerRef.current * 2.06;
-    playPop(blastPowerRef.current);
+    if (withPopSound) playPop(blastPowerRef.current);
     const paint = paintRef.current;
     const pctx = paint?.getContext("2d");
     if (pctx) {
@@ -637,7 +743,7 @@ export default function PaintMarbles() {
       });
     }
     ballsRef.current = ballsRef.current.filter((item) => item.id !== ball.id);
-    setScore((value) => value + 1);
+    awardSplats(1);
     if (ball.treasure && treasureEnabledRef.current) {
       pausedBeforeTreasureRef.current = pausedRef.current;
       pausedRef.current = true;
@@ -647,7 +753,7 @@ export default function PaintMarbles() {
     }
     syncCount();
     setHint(ball.treasure ? "Treasure found! A golden teddy is yours" : ballsRef.current.length ? "SPLAT! Keep going" : "All splatted — add another marble");
-  }, [playPop, syncCount]);
+  }, [awardSplats, playPop, syncCount]);
 
   useEffect(() => {
     energyRef.current = energy / 100;
@@ -808,10 +914,14 @@ export default function PaintMarbles() {
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      const bg = ctx.createLinearGradient(0, 0, width, height);
-      bg.addColorStop(0, "#fffaf0");
-      bg.addColorStop(1, "#f1eadf");
-      ctx.fillStyle = bg;
+      if (cleanWhiteRef.current) {
+        ctx.fillStyle = "#fff";
+      } else {
+        const bg = ctx.createLinearGradient(0, 0, width, height);
+        bg.addColorStop(0, "#fffaf0");
+        bg.addColorStop(1, "#f1eadf");
+        ctx.fillStyle = bg;
+      }
       ctx.fillRect(0, 0, width, height);
       ctx.save();
       ctx.globalAlpha = 0.97;
@@ -964,6 +1074,48 @@ export default function PaintMarbles() {
     setHint("Golden teddy collected — keep popping");
   };
 
+  const launchRocket = () => {
+    if (rocketActiveRef.current || rocketsRef.current <= 0) return;
+    const { width, height } = sizeRef.current;
+    const radius = clamp(width / 6, 58, 240);
+    const allowance = radius * 0.46;
+    const target: RocketSequence = {
+      phase: "launch",
+      x: -allowance + Math.random() * (width + allowance * 2),
+      y: -allowance + Math.random() * (height + allowance * 2),
+      r: radius,
+    };
+
+    rocketActiveRef.current = true;
+    rocketsRef.current -= 1;
+    setRockets(rocketsRef.current);
+    setRocketSequence(target);
+    setHint("Rocket away — watch for the target!");
+    playRocketLaunch();
+
+    rocketTimersRef.current = [
+      window.setTimeout(() => {
+        setRocketSequence({ ...target, phase: "target" });
+        setHint("Target locked — incoming!");
+      }, 520),
+      window.setTimeout(() => {
+        setRocketSequence({ ...target, phase: "impact" });
+        playRocketImpact();
+        const hit = ballsRef.current.filter((ball) => Math.hypot(ball.x - target.x, ball.y - target.y) <= target.r + ball.r * 0.35);
+        for (const ball of hit) explodeBall(ball, false);
+        const paint = paintRef.current;
+        if (paint) paint.getContext("2d")?.clearRect(0, 0, paint.width, paint.height);
+        cleanWhiteRef.current = true;
+        setHint(hit.length ? `Rocket impact — ${hit.length} marble${hit.length === 1 ? "" : "s"} popped!` : "Rocket missed — the board is squeaky clean");
+      }, 1540),
+      window.setTimeout(() => {
+        setRocketSequence(null);
+        rocketActiveRef.current = false;
+        rocketTimersRef.current = [];
+      }, 2040),
+    ];
+  };
+
   return (
     <main className="game-shell">
       <header className="topbar">
@@ -1037,6 +1189,15 @@ export default function PaintMarbles() {
           >
             <span aria-hidden="true">★</span> Treasure
           </button>
+          <button
+            className={`rocket-control${rockets > 0 ? " is-ready" : ""}`}
+            onClick={launchRocket}
+            disabled={rockets <= 0 || Boolean(rocketSequence)}
+            aria-label={rockets > 0 ? `Launch rocket. ${rockets} available` : `Rocket locked. ${score % 25} of 25 splats toward next rocket`}
+            title={rockets > 0 ? `${rockets} rocket${rockets === 1 ? "" : "s"} ready` : `${score % 25}/25 splats toward next rocket`}
+          >
+            <span aria-hidden="true">🚀</span> Rocket <b>{rockets > 0 ? rockets : `${score % 25}/25`}</b>
+          </button>
           <div className="size-menu">
             <button
               className={`size-control${sizeMix ? " is-active" : ""}`}
@@ -1089,6 +1250,16 @@ export default function PaintMarbles() {
           aria-label="Interactive board. Drag marbles to throw them. Tap the dark rails to add or remove spikes."
         />
         <div className="board-note" aria-hidden="true">TAP RAILS · DRAG MARBLES · MAKE A MESS</div>
+        {rocketSequence?.phase === "launch" && <div className="rocket-flyby" aria-hidden="true"><span>🚀</span><i /></div>}
+        {rocketSequence && rocketSequence.phase !== "launch" && (
+          <div
+            className={`rocket-target rocket-target-${rocketSequence.phase}`}
+            style={{ left: rocketSequence.x, top: rocketSequence.y, width: rocketSequence.r * 2, height: rocketSequence.r * 2 }}
+            aria-hidden="true"
+          >
+            <span /><i />
+          </div>
+        )}
       </section>
 
       {treasureReveal && (
