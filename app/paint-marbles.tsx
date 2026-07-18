@@ -157,26 +157,46 @@ function updateSquash(ball: Ball, dt: number) {
 }
 
 function localizePaint(ball: Ball, worldNormal: Vec3, color: string, intensity: number) {
-  const center = inverseRotateVec(ball.q, worldNormal);
-  const count = Math.round(6 + intensity * 12);
+  const rawCenter = inverseRotateVec(ball.q, worldNormal);
+  const centerLength = Math.hypot(rawCenter.x, rawCenter.y, rawCenter.z) || 1;
+  const center = { x: rawCenter.x / centerLength, y: rawCenter.y / centerLength, z: rawCenter.z / centerLength };
+  const reference = Math.abs(center.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 0, y: 1, z: 0 };
+  const tangentRaw = {
+    x: center.y * reference.z - center.z * reference.y,
+    y: center.z * reference.x - center.x * reference.z,
+    z: center.x * reference.y - center.y * reference.x,
+  };
+  const tangentLength = Math.hypot(tangentRaw.x, tangentRaw.y, tangentRaw.z) || 1;
+  const tangent = { x: tangentRaw.x / tangentLength, y: tangentRaw.y / tangentLength, z: tangentRaw.z / tangentLength };
+  const bitangent = {
+    x: center.y * tangent.z - center.z * tangent.y,
+    y: center.z * tangent.x - center.x * tangent.z,
+    z: center.x * tangent.y - center.y * tangent.x,
+  };
+  const capAngle = 1.08 + 0.16 * intensity;
+  const count = Math.round(38 + intensity * 18);
   for (let i = 0; i < count; i++) {
-    const spread = (0.05 + Math.random() * 0.28) * intensity;
-    const a = Math.random() * TAU;
-    const raw = {
-      x: center.x + Math.cos(a) * spread,
-      y: center.y + Math.sin(a) * spread,
-      z: center.z + (Math.random() - 0.5) * spread,
+    const angle = Math.random() * TAU;
+    const edgeBias = i < 7 ? Math.random() * 0.22 : Math.sqrt(Math.random());
+    const theta = capAngle * edgeBias * (0.92 + Math.random() * 0.12);
+    const around = {
+      x: tangent.x * Math.cos(angle) + bitangent.x * Math.sin(angle),
+      y: tangent.y * Math.cos(angle) + bitangent.y * Math.sin(angle),
+      z: tangent.z * Math.cos(angle) + bitangent.z * Math.sin(angle),
     };
-    const len = Math.hypot(raw.x, raw.y, raw.z) || 1;
     ball.marks.push({
-      v: { x: raw.x / len, y: raw.y / len, z: raw.z / len },
+      v: {
+        x: center.x * Math.cos(theta) + around.x * Math.sin(theta),
+        y: center.y * Math.cos(theta) + around.y * Math.sin(theta),
+        z: center.z * Math.cos(theta) + around.z * Math.sin(theta),
+      },
       color,
-      size: 0.04 + Math.random() * 0.09 * intensity,
+      size: i < 7 ? 0.25 + Math.random() * 0.12 : 0.13 + Math.random() * 0.13,
       seed: Math.random() * 10000,
       paint: true,
     });
   }
-  if (ball.marks.length > 180) ball.marks.splice(34, ball.marks.length - 180);
+  if (ball.marks.length > 280) ball.marks.splice(34, ball.marks.length - 280);
 }
 
 function drawSplat(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, radius: number) {
