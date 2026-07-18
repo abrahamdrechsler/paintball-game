@@ -35,6 +35,7 @@ type Ball = {
   squashVX: number;
   squashVY: number;
   dragging: boolean;
+  treasure: boolean;
 };
 
 type Spike = { side: Side; pos: number };
@@ -104,7 +105,7 @@ function createTextureMarks(accent: string, highlight: string, seed: number): Su
   return marks;
 }
 
-function makeBall(id: number, width: number, height: number): Ball {
+function makeBall(id: number, width: number, height: number, treasure = false): Ball {
   const palette = PALETTES[id % PALETTES.length];
   const r = clamp(Math.min(width, height) * 0.075, 38, 66);
   const sizeSeed = Math.abs(Math.sin((id + 1) * 12.9898) * 43758.5453) % 1;
@@ -129,6 +130,7 @@ function makeBall(id: number, width: number, height: number): Ball {
     squashVX: 0,
     squashVY: 0,
     dragging: false,
+    treasure,
   };
 }
 
@@ -271,6 +273,46 @@ function drawSpike(ctx: CanvasRenderingContext2D, spike: Spike, width: number, h
   ctx.restore();
 }
 
+function drawTreasureTrophy(ctx: CanvasRenderingContext2D, radius: number) {
+  const scale = radius / 58;
+  ctx.save();
+  ctx.scale(scale, scale);
+  ctx.translate(0, 3);
+  ctx.shadowColor = "rgba(104,65,0,.55)";
+  ctx.shadowBlur = 7;
+  ctx.fillStyle = "#ffd84d";
+  ctx.strokeStyle = "#8a5b00";
+  ctx.lineWidth = 2.2;
+
+  ctx.beginPath();
+  ctx.moveTo(-15, -18);
+  ctx.lineTo(15, -18);
+  ctx.quadraticCurveTo(13, 4, 0, 8);
+  ctx.quadraticCurveTo(-13, 4, -15, -18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(-15, -10, 9, Math.PI * 0.55, Math.PI * 1.48);
+  ctx.arc(15, -10, 9, Math.PI * 1.52, Math.PI * 0.45);
+  ctx.stroke();
+
+  ctx.fillRect(-3, 7, 6, 10);
+  ctx.strokeRect(-3, 7, 6, 10);
+  ctx.beginPath();
+  ctx.roundRect(-12, 16, 24, 6, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  ctx.beginPath();
+  ctx.ellipse(-5, -12, 3, 7, -0.5, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawBall(ctx: CanvasRenderingContext2D, ball: Ball) {
   const sx = clamp(1 + ball.squashX - ball.squashY * 0.38, 0.72, 1.25);
   const sy = clamp(1 + ball.squashY - ball.squashX * 0.38, 0.72, 1.25);
@@ -289,6 +331,8 @@ function drawBall(ctx: CanvasRenderingContext2D, ball: Ball) {
   gradient.addColorStop(1, "#272238");
   ctx.fillStyle = gradient;
   ctx.fillRect(-ball.r, -ball.r, ball.r * 2, ball.r * 2);
+
+  if (ball.treasure) drawTreasureTrophy(ctx, ball.r);
 
   const visible = ball.marks
     .map((mark) => ({ mark, p: rotateVec(ball.q, mark.v) }))
@@ -351,6 +395,7 @@ export default function PaintMarbles() {
   const blastPowerRef = useRef(0.5);
   const soundEnabledRef = useRef(true);
   const musicEnabledRef = useRef(true);
+  const treasureEnabledRef = useRef(true);
   const sizeMixRef = useRef(true);
   const sizeVariabilityRef = useRef(0.6);
   const minSizeRef = useRef(0.85);
@@ -358,12 +403,16 @@ export default function PaintMarbles() {
   const audioRef = useRef<AudioContext | null>(null);
   const musicRef = useRef<MusicEngine | null>(null);
   const pausedRef = useRef(false);
+  const pausedBeforeTreasureRef = useRef(false);
   const [score, setScore] = useState(0);
   const [count, setCount] = useState(0);
   const [energy, setEnergy] = useState(78);
   const [blastPower, setBlastPower] = useState(50);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(true);
+  const [treasureEnabled, setTreasureEnabled] = useState(true);
+  const [teddyCount, setTeddyCount] = useState(0);
+  const [treasureReveal, setTreasureReveal] = useState(false);
   const [sizeMix, setSizeMix] = useState(true);
   const [sizePanelOpen, setSizePanelOpen] = useState(false);
   const [sizeVariability, setSizeVariability] = useState(60);
@@ -504,7 +553,7 @@ export default function PaintMarbles() {
 
   const addBall = useCallback(() => {
     const { width, height } = sizeRef.current;
-    const ball = makeBall(nextIdRef.current++, width, height);
+    const ball = makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01);
     applyBallSize(ball, sizeMixRef.current, sizeVariabilityRef.current, minSizeRef.current, maxSizeRef.current, width, height);
     for (let attempts = 0; attempts < 24; attempts++) {
       const overlap = ballsRef.current.some((other) => Math.hypot(ball.x - other.x, ball.y - other.y) < ball.r + other.r + 10);
@@ -530,9 +579,14 @@ export default function PaintMarbles() {
     particlesRef.current = [];
     nextIdRef.current = 0;
     setScore(0);
+    setTeddyCount(0);
     clearPaint();
     const { width, height } = sizeRef.current;
-    ballsRef.current = [makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height)];
+    ballsRef.current = [
+      makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01),
+      makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01),
+      makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01),
+    ];
     applyCurrentSizes();
     syncCount();
     setHint("Tap a rail to plant a spike");
@@ -584,8 +638,15 @@ export default function PaintMarbles() {
     }
     ballsRef.current = ballsRef.current.filter((item) => item.id !== ball.id);
     setScore((value) => value + 1);
+    if (ball.treasure && treasureEnabledRef.current) {
+      pausedBeforeTreasureRef.current = pausedRef.current;
+      pausedRef.current = true;
+      setPaused(true);
+      setTeddyCount((value) => value + 1);
+      setTreasureReveal(true);
+    }
     syncCount();
-    setHint(ballsRef.current.length ? "SPLAT! Keep going" : "All splatted — add another marble");
+    setHint(ball.treasure ? "Treasure found! A golden teddy is yours" : ballsRef.current.length ? "SPLAT! Keep going" : "All splatted — add another marble");
   }, [playPop, syncCount]);
 
   useEffect(() => {
@@ -644,7 +705,11 @@ export default function PaintMarbles() {
     resize();
     if (!ballsRef.current.length) {
       const { width, height } = sizeRef.current;
-      ballsRef.current = [makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height)];
+      ballsRef.current = [
+        makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01),
+        makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01),
+        makeBall(nextIdRef.current++, width, height, treasureEnabledRef.current && Math.random() < 0.01),
+      ];
       applyCurrentSizes();
       syncCount();
     }
@@ -883,6 +948,22 @@ export default function PaintMarbles() {
     }
   };
 
+  const toggleTreasure = () => {
+    treasureEnabledRef.current = !treasureEnabledRef.current;
+    setTreasureEnabled(treasureEnabledRef.current);
+    if (!treasureEnabledRef.current) {
+      for (const ball of ballsRef.current) ball.treasure = false;
+    }
+    setHint(treasureEnabledRef.current ? "Treasure hunt is on — 1 in 100 marbles hides gold" : "Treasure hunt is off");
+  };
+
+  const continueAfterTreasure = () => {
+    setTreasureReveal(false);
+    pausedRef.current = pausedBeforeTreasureRef.current;
+    setPaused(pausedBeforeTreasureRef.current);
+    setHint("Golden teddy collected — keep popping");
+  };
+
   return (
     <main className="game-shell">
       <header className="topbar">
@@ -894,9 +975,15 @@ export default function PaintMarbles() {
           </div>
         </div>
 
-        <div className="score-card" aria-live="polite">
-          <span className="score-label">SPLATS</span>
-          <strong>{String(score).padStart(2, "0")}</strong>
+        <div className="score-cluster" aria-live="polite">
+          <div className="score-card">
+            <span className="score-label">SPLATS</span>
+            <strong>{String(score).padStart(2, "0")}</strong>
+          </div>
+          <div className="teddy-card" title="Golden teddies collected">
+            <span aria-hidden="true">★</span>
+            <div><small>TEDDIES</small><strong>{teddyCount}</strong></div>
+          </div>
         </div>
 
         <div className="controls" aria-label="Game controls">
@@ -941,6 +1028,14 @@ export default function PaintMarbles() {
             aria-label={musicEnabled ? "Turn off background music" : "Turn on background music"}
           >
             <span aria-hidden="true">♫</span> Music
+          </button>
+          <button
+            className={`treasure-control${treasureEnabled ? " is-active" : ""}`}
+            onClick={toggleTreasure}
+            aria-pressed={treasureEnabled}
+            aria-label={treasureEnabled ? "Turn off hidden treasures" : "Turn on hidden treasures"}
+          >
+            <span aria-hidden="true">★</span> Treasure
           </button>
           <div className="size-menu">
             <button
@@ -995,6 +1090,23 @@ export default function PaintMarbles() {
         />
         <div className="board-note" aria-hidden="true">TAP RAILS · DRAG MARBLES · MAKE A MESS</div>
       </section>
+
+      {treasureReveal && (
+        <button className="treasure-reveal" onClick={continueAfterTreasure} aria-label="Golden teddy found. Click to continue playing.">
+          <span className="treasure-rays" aria-hidden="true" />
+          <span className="treasure-chest" aria-hidden="true">
+            <span className="chest-lid" />
+            <span className="chest-box"><span className="chest-lock" /></span>
+            <span className="golden-teddy">
+              <i className="teddy-ear teddy-ear-left" /><i className="teddy-ear teddy-ear-right" />
+              <i className="teddy-head"><b className="teddy-eye teddy-eye-left" /><b className="teddy-eye teddy-eye-right" /><b className="teddy-muzzle" /></i>
+              <i className="teddy-body" /><i className="teddy-arm teddy-arm-left" /><i className="teddy-arm teddy-arm-right" />
+            </span>
+          </span>
+          <strong>GOLDEN TEDDY!</strong>
+          <small>Treasure collected · click to continue</small>
+        </button>
+      )}
     </main>
   );
 }
