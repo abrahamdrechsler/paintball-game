@@ -40,7 +40,7 @@ button { color: inherit; }
 .topbar {
   min-height: 76px;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(450px, 1fr);
+  grid-template-columns: minmax(220px, 1fr) auto minmax(600px, 1fr);
   align-items: center;
   gap: 14px;
   padding: 9px 12px;
@@ -117,6 +117,41 @@ button { color: inherit; }
 .sound-control span { display: inline-block; margin-right: 3px; font-size: 17px; vertical-align: -1px; }
 .controls .sound-control.is-active { background: #82f0dc; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
 .controls .sound-control.is-active:hover { background: #a3f5e6; }
+.size-menu { position: relative; flex: 0 0 auto; }
+.size-control { width: 88px; padding: 0 9px; font: 800 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
+.size-control span { display: inline-block; margin-right: 3px; font-size: 15px; vertical-align: -1px; }
+.controls .size-control.is-active { background: #ffb5d0; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
+.controls .size-control.is-active:hover { background: #ffc9dc; }
+.size-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 12px);
+  right: 0;
+  width: min(280px, calc(100vw - 28px));
+  padding: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: rgba(255,250,240,.98);
+  box-shadow: 5px 7px 0 rgba(41,38,39,.2);
+  text-transform: none;
+}
+.size-panel::before { content: ""; position: absolute; top: -8px; right: 31px; width: 13px; height: 13px; transform: rotate(45deg); border-left: 2px solid var(--ink); border-top: 2px solid var(--ink); background: var(--paper); }
+.size-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.size-panel-head strong { display: block; font: 900 15px/1 Arial, sans-serif; text-transform: uppercase; }
+.size-panel-head small { display: block; margin-top: 4px; color: #756c68; font: 9px/1 var(--font-geist-mono), monospace; }
+.size-switch { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.size-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.size-switch > span { position: relative; width: 37px; height: 21px; border: 1.5px solid var(--ink); border-radius: 20px; background: #d8d0c5; }
+.size-switch > span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border: 1px solid var(--ink); border-radius: 50%; background: #fff; transition: transform 140ms ease; }
+.size-switch input:checked + span { background: #ff77bd; }
+.size-switch input:checked + span::after { transform: translateX(16px); }
+.size-switch b { font: 800 9px/1 var(--font-geist-mono), monospace; text-transform: uppercase; }
+.size-slider { display: block; margin-top: 11px; }
+.size-slider > span { display: flex; justify-content: space-between; font: 700 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; }
+.size-slider output { color: #a42f57; }
+.size-slider input { width: 100%; margin: 8px 0 0; accent-color: #ff4d73; }
+.size-slider input:disabled { opacity: .35; }
+.size-panel p { margin: 12px 0 0; color: #756c68; font: 9px/1.35 var(--font-geist-mono), monospace; }
 
 .motion-control {
   min-width: 120px;
@@ -166,11 +201,12 @@ button { color: inherit; }
   white-space: nowrap;
 }
 
-@media (max-width: 940px) {
+@media (max-width: 1180px) {
   .topbar { grid-template-columns: 1fr auto; gap: 9px; }
   .score-card { grid-column: 2; grid-row: 1; }
   .controls { grid-column: 1 / -1; justify-content: stretch; }
   .controls > * { flex: 1; }
+  .size-menu .size-control { width: 100%; }
   .brand-block p { max-width: 55vw; }
   .text-control { display: none; }
   .game-shell { gap: 7px; }
@@ -186,6 +222,8 @@ button { color: inherit; }
   .score-card strong { font-size: 24px; }
   .controls { gap: 5px; }
   .controls button, .motion-control { min-height: 40px; height: 40px; }
+  .size-menu { min-height: 40px; height: 40px; }
+  .size-menu .size-control { width: 100%; }
   .motion-control { min-width: 112px; padding: 0 8px; }
   .motion-control input { width: 55px; }
   .primary-control { font-size: 12px; padding: 0 8px; }

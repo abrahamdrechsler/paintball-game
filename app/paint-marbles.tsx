@@ -23,6 +23,8 @@ type Ball = {
   vx: number;
   vy: number;
   r: number;
+  baseR: number;
+  sizeSeed: number;
   base: string;
   accent: string;
   highlight: string;
@@ -104,6 +106,7 @@ function createTextureMarks(accent: string, highlight: string, seed: number): Su
 function makeBall(id: number, width: number, height: number): Ball {
   const palette = PALETTES[id % PALETTES.length];
   const r = clamp(Math.min(width, height) * 0.075, 38, 66);
+  const sizeSeed = Math.abs(Math.sin((id + 1) * 12.9898) * 43758.5453) % 1;
   const angle = id * 2.19 + 0.8;
   const speed = 120 + (id % 3) * 32;
   return {
@@ -113,6 +116,8 @@ function makeBall(id: number, width: number, height: number): Ball {
     vx: Math.cos(angle) * speed,
     vy: Math.sin(angle) * speed,
     r,
+    baseR: r,
+    sizeSeed,
     base: palette[0],
     accent: palette[1],
     highlight: palette[2],
@@ -124,6 +129,16 @@ function makeBall(id: number, width: number, height: number): Ball {
     squashVY: 0,
     dragging: false,
   };
+}
+
+function applyBallSize(ball: Ball, enabled: boolean, variability: number, minScale: number, maxScale: number, width: number, height: number) {
+  const spreadTarget = ball.sizeSeed < 0.5
+    ? minScale + (1 - minScale) * ball.sizeSeed * 2
+    : 1 + (maxScale - 1) * (ball.sizeSeed - 0.5) * 2;
+  const scale = enabled ? 1 + (spreadTarget - 1) * variability : 1;
+  ball.r = clamp(ball.baseR * scale, ball.baseR * 0.75, Math.min(width, height) * 0.42);
+  ball.x = clamp(ball.x, RAIL + ball.r, width - RAIL - ball.r);
+  ball.y = clamp(ball.y, RAIL + ball.r, height - RAIL - ball.r);
 }
 
 function kickSquash(ball: Ball, nx: number, ny: number, strength: number) {
@@ -293,6 +308,10 @@ export default function PaintMarbles() {
   const energyRef = useRef(0.78);
   const bigBlastRef = useRef(true);
   const soundEnabledRef = useRef(true);
+  const sizeMixRef = useRef(true);
+  const sizeVariabilityRef = useRef(0.6);
+  const minSizeRef = useRef(0.85);
+  const maxSizeRef = useRef(2.2);
   const audioRef = useRef<AudioContext | null>(null);
   const pausedRef = useRef(false);
   const [score, setScore] = useState(0);
@@ -300,10 +319,22 @@ export default function PaintMarbles() {
   const [energy, setEnergy] = useState(78);
   const [bigBlast, setBigBlast] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [sizeMix, setSizeMix] = useState(true);
+  const [sizePanelOpen, setSizePanelOpen] = useState(false);
+  const [sizeVariability, setSizeVariability] = useState(60);
+  const [minSize, setMinSize] = useState(85);
+  const [maxSize, setMaxSize] = useState(220);
   const [paused, setPaused] = useState(false);
   const [hint, setHint] = useState("Tap a rail to plant a spike");
 
   const syncCount = useCallback(() => setCount(ballsRef.current.length), []);
+
+  const applyCurrentSizes = useCallback(() => {
+    const { width, height } = sizeRef.current;
+    for (const ball of ballsRef.current) {
+      applyBallSize(ball, sizeMixRef.current, sizeVariabilityRef.current, minSizeRef.current, maxSizeRef.current, width, height);
+    }
+  }, []);
 
   const ensureAudio = () => {
     if (!soundEnabledRef.current) return null;
@@ -365,6 +396,7 @@ export default function PaintMarbles() {
   const addBall = useCallback(() => {
     const { width, height } = sizeRef.current;
     const ball = makeBall(nextIdRef.current++, width, height);
+    applyBallSize(ball, sizeMixRef.current, sizeVariabilityRef.current, minSizeRef.current, maxSizeRef.current, width, height);
     for (let attempts = 0; attempts < 24; attempts++) {
       const overlap = ballsRef.current.some((other) => Math.hypot(ball.x - other.x, ball.y - other.y) < ball.r + other.r + 10);
       if (!overlap) break;
@@ -392,9 +424,10 @@ export default function PaintMarbles() {
     clearPaint();
     const { width, height } = sizeRef.current;
     ballsRef.current = [makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height)];
+    applyCurrentSizes();
     syncCount();
     setHint("Tap a rail to plant a spike");
-  }, [clearPaint, syncCount]);
+  }, [applyCurrentSizes, clearPaint, syncCount]);
 
   const explodeBall = useCallback((ball: Ball) => {
     const blastScale = bigBlastRef.current ? 1.78 : 1;
@@ -451,6 +484,14 @@ export default function PaintMarbles() {
   }, [energy]);
 
   useEffect(() => {
+    sizeMixRef.current = sizeMix;
+    sizeVariabilityRef.current = sizeVariability / 100;
+    minSizeRef.current = minSize / 100;
+    maxSizeRef.current = maxSize / 100;
+    applyCurrentSizes();
+  }, [applyCurrentSizes, maxSize, minSize, sizeMix, sizeVariability]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -480,8 +521,8 @@ export default function PaintMarbles() {
       for (const ball of ballsRef.current) {
         ball.x *= Number.isFinite(sx) ? sx : 1;
         ball.y *= Number.isFinite(sy) ? sy : 1;
-        ball.x = clamp(ball.x, RAIL + ball.r, sizeRef.current.width - RAIL - ball.r);
-        ball.y = clamp(ball.y, RAIL + ball.r, sizeRef.current.height - RAIL - ball.r);
+        ball.baseR = clamp(Math.min(sizeRef.current.width, sizeRef.current.height) * 0.075, 38, 66);
+        applyBallSize(ball, sizeMixRef.current, sizeVariabilityRef.current, minSizeRef.current, maxSizeRef.current, sizeRef.current.width, sizeRef.current.height);
       }
     };
 
@@ -491,6 +532,7 @@ export default function PaintMarbles() {
     if (!ballsRef.current.length) {
       const { width, height } = sizeRef.current;
       ballsRef.current = [makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height), makeBall(nextIdRef.current++, width, height)];
+      applyCurrentSizes();
       syncCount();
     }
 
@@ -635,7 +677,7 @@ export default function PaintMarbles() {
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [explodeBall, syncCount]);
+  }, [applyCurrentSizes, explodeBall, syncCount]);
 
   const pointerPosition = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -769,6 +811,41 @@ export default function PaintMarbles() {
           >
             <span aria-hidden="true">♪</span> Sound
           </button>
+          <div className="size-menu">
+            <button
+              className={`size-control${sizeMix ? " is-active" : ""}`}
+              onClick={() => setSizePanelOpen((open) => !open)}
+              aria-expanded={sizePanelOpen}
+              aria-controls="size-mix-panel"
+            >
+              <span aria-hidden="true">◉</span> Sizes
+            </button>
+            {sizePanelOpen && (
+              <div className="size-panel" id="size-mix-panel">
+                <div className="size-panel-head">
+                  <div><strong>Size Mix</strong><small>Changes every marble</small></div>
+                  <label className="size-switch">
+                    <input type="checkbox" checked={sizeMix} onChange={(event) => setSizeMix(event.target.checked)} />
+                    <span aria-hidden="true" />
+                    <b>{sizeMix ? "On" : "Off"}</b>
+                  </label>
+                </div>
+                <label className="size-slider">
+                  <span>Variability <output>{sizeVariability}%</output></span>
+                  <input type="range" min="0" max="100" value={sizeVariability} disabled={!sizeMix} onChange={(event) => setSizeVariability(Number(event.target.value))} />
+                </label>
+                <label className="size-slider">
+                  <span>Smallest <output>{minSize}%</output></span>
+                  <input type="range" min="75" max="100" value={minSize} disabled={!sizeMix} onChange={(event) => setMinSize(Number(event.target.value))} />
+                </label>
+                <label className="size-slider">
+                  <span>Largest <output>{(maxSize / 100).toFixed(1)}×</output></span>
+                  <input type="range" min="100" max="300" step="10" value={maxSize} disabled={!sizeMix} onChange={(event) => setMaxSize(Number(event.target.value))} />
+                </label>
+                <p>At 0% variability, every marble returns to the standard size.</p>
+              </div>
+            )}
+          </div>
           <button className="icon-control" onClick={togglePaused} aria-label={paused ? "Resume game" : "Pause game"}>{paused ? "▶" : "Ⅱ"}</button>
           <button className="text-control" onClick={clearPaint}>Wipe paint</button>
           <button className="text-control" onClick={resetGame}>Reset</button>
