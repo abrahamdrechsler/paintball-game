@@ -292,15 +292,75 @@ export default function PaintMarbles() {
   const dragRef = useRef<{ id: number; lastX: number; lastY: number; lastTime: number } | null>(null);
   const energyRef = useRef(0.78);
   const bigBlastRef = useRef(true);
+  const soundEnabledRef = useRef(true);
+  const audioRef = useRef<AudioContext | null>(null);
   const pausedRef = useRef(false);
   const [score, setScore] = useState(0);
   const [count, setCount] = useState(0);
   const [energy, setEnergy] = useState(78);
   const [bigBlast, setBigBlast] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [paused, setPaused] = useState(false);
   const [hint, setHint] = useState("Tap a rail to plant a spike");
 
   const syncCount = useCallback(() => setCount(ballsRef.current.length), []);
+
+  const ensureAudio = () => {
+    if (!soundEnabledRef.current) return null;
+    if (!audioRef.current) audioRef.current = new AudioContext();
+    if (audioRef.current.state === "suspended") void audioRef.current.resume();
+    return audioRef.current;
+  };
+
+  const playPop = useCallback((big: boolean) => {
+    if (!soundEnabledRef.current) return;
+    const audio = audioRef.current;
+    if (!audio || audio.state !== "running") return;
+    const now = audio.currentTime;
+    const variation = 0.84 + Math.random() * 0.34;
+    const master = audio.createGain();
+    master.gain.setValueAtTime(0.72, now);
+    master.connect(audio.destination);
+
+    const body = audio.createOscillator();
+    const bodyGain = audio.createGain();
+    body.type = Math.random() > 0.45 ? "sine" : "triangle";
+    body.frequency.setValueAtTime((big ? 175 : 215) * variation, now);
+    body.frequency.exponentialRampToValueAtTime((big ? 48 : 68) * variation, now + (big ? 0.18 : 0.13));
+    bodyGain.gain.setValueAtTime(0.0001, now);
+    bodyGain.gain.exponentialRampToValueAtTime(big ? 0.52 : 0.42, now + 0.006);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + (big ? 0.24 : 0.17));
+    body.connect(bodyGain).connect(master);
+    body.start(now);
+    body.stop(now + 0.26);
+
+    const snap = audio.createOscillator();
+    const snapGain = audio.createGain();
+    snap.type = "square";
+    snap.frequency.setValueAtTime((520 + Math.random() * 310) * variation, now);
+    snap.frequency.exponentialRampToValueAtTime(130 * variation, now + 0.045);
+    snapGain.gain.setValueAtTime(0.16 + Math.random() * 0.1, now);
+    snapGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055 + Math.random() * 0.025);
+    snap.connect(snapGain).connect(master);
+    snap.start(now);
+    snap.stop(now + 0.09);
+
+    const noiseLength = Math.floor(audio.sampleRate * (big ? 0.28 : 0.19));
+    const noiseBuffer = audio.createBuffer(1, noiseLength, audio.sampleRate);
+    const noise = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noise.length; i++) noise[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noise.length, 1.7);
+    const splatter = audio.createBufferSource();
+    const filter = audio.createBiquadFilter();
+    const noiseGain = audio.createGain();
+    splatter.buffer = noiseBuffer;
+    filter.type = "bandpass";
+    filter.frequency.value = (620 + Math.random() * 880) * variation;
+    filter.Q.value = 0.55 + Math.random() * 0.85;
+    noiseGain.gain.setValueAtTime(big ? 0.28 : 0.2, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + (big ? 0.27 : 0.18));
+    splatter.connect(filter).connect(noiseGain).connect(master);
+    splatter.start(now + Math.random() * 0.012);
+  }, []);
 
   const addBall = useCallback(() => {
     const { width, height } = sizeRef.current;
@@ -338,6 +398,7 @@ export default function PaintMarbles() {
 
   const explodeBall = useCallback((ball: Ball) => {
     const blastScale = bigBlastRef.current ? 1.78 : 1;
+    playPop(bigBlastRef.current);
     const paint = paintRef.current;
     const pctx = paint?.getContext("2d");
     if (pctx) {
@@ -383,7 +444,7 @@ export default function PaintMarbles() {
     setScore((value) => value + 1);
     syncCount();
     setHint(ballsRef.current.length ? "SPLAT! Keep going" : "All splatted — add another marble");
-  }, [syncCount]);
+  }, [playPop, syncCount]);
 
   useEffect(() => {
     energyRef.current = energy / 100;
@@ -583,6 +644,7 @@ export default function PaintMarbles() {
 
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.preventDefault();
+    ensureAudio();
     const { x, y } = pointerPosition(event);
     const { width, height } = sizeRef.current;
     const side = railSide(x, y, width, height);
@@ -649,6 +711,17 @@ export default function PaintMarbles() {
     setHint(bigBlastRef.current ? "Big Blast is on — stand back" : "Compact splats are on");
   };
 
+  const toggleSound = () => {
+    soundEnabledRef.current = !soundEnabledRef.current;
+    setSoundEnabled(soundEnabledRef.current);
+    if (soundEnabledRef.current) {
+      ensureAudio();
+      setHint("Popping sounds are on");
+    } else {
+      setHint("Popping sounds are off");
+    }
+  };
+
   return (
     <main className="game-shell">
       <header className="topbar">
@@ -687,6 +760,14 @@ export default function PaintMarbles() {
             aria-label={bigBlast ? "Disable Big Blast explosions" : "Enable Big Blast explosions"}
           >
             <span aria-hidden="true">✹</span> Big Blast
+          </button>
+          <button
+            className={`sound-control${soundEnabled ? " is-active" : ""}`}
+            onClick={toggleSound}
+            aria-pressed={soundEnabled}
+            aria-label={soundEnabled ? "Mute popping sounds" : "Enable popping sounds"}
+          >
+            <span aria-hidden="true">♪</span> Sound
           </button>
           <button className="icon-control" onClick={togglePaused} aria-label={paused ? "Resume game" : "Pause game"}>{paused ? "▶" : "Ⅱ"}</button>
           <button className="text-control" onClick={clearPaint}>Wipe paint</button>
