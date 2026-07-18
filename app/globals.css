@@ -125,10 +125,12 @@ button { color: inherit; }
 }
 .blast-range-control input { width: 66px; accent-color: #dc3f66; cursor: ew-resize; }
 .blast-range-control output { min-width: 20px; color: #8d2443; text-align: right; }
-.sound-control { padding: 0 10px; font: 800 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
-.sound-control span { display: inline-block; margin-right: 3px; font-size: 17px; vertical-align: -1px; }
+.sound-control, .music-control { padding: 0 10px; font: 800 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
+.sound-control span, .music-control span { display: inline-block; margin-right: 3px; font-size: 17px; vertical-align: -1px; }
 .controls .sound-control.is-active { background: #82f0dc; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
 .controls .sound-control.is-active:hover { background: #a3f5e6; }
+.controls .music-control.is-active { background: #ffe36e; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
+.controls .music-control.is-active:hover { background: #ffea91; }
 .size-menu { position: relative; flex: 0 0 auto; }
 .size-control { width: 88px; padding: 0 9px; font: 800 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
 .size-control span { display: inline-block; margin-right: 3px; font-size: 15px; vertical-align: -1px; }

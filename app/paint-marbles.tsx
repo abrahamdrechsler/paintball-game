@@ -39,6 +39,7 @@ type Ball = {
 
 type Spike = { side: Side; pos: number };
 type Particle = { x: number; y: number; vx: number; vy: number; r: number; color: string; life: number; maxLife: number };
+type MusicEngine = { master: GainNode; timer: number; nextNoteTime: number; step: number };
 
 const RAIL = 18;
 const TAU = Math.PI * 2;
@@ -226,6 +227,27 @@ function drawSplat(ctx: CanvasRenderingContext2D, x: number, y: number, color: s
   ctx.restore();
 }
 
+function scheduleMusicTone(
+  audio: AudioContext,
+  destination: AudioNode,
+  frequency: number,
+  time: number,
+  duration: number,
+  level: number,
+  type: OscillatorType = "sine",
+) {
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, time);
+  gain.gain.setValueAtTime(0.0001, time);
+  gain.gain.exponentialRampToValueAtTime(level, time + 0.025);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+  oscillator.connect(gain).connect(destination);
+  oscillator.start(time);
+  oscillator.stop(time + duration + 0.04);
+}
+
 function drawSpike(ctx: CanvasRenderingContext2D, spike: Spike, width: number, height: number) {
   const half = 13;
   const depth = 25;
@@ -328,17 +350,20 @@ export default function PaintMarbles() {
   const energyRef = useRef(0.78);
   const blastPowerRef = useRef(0.5);
   const soundEnabledRef = useRef(true);
+  const musicEnabledRef = useRef(true);
   const sizeMixRef = useRef(true);
   const sizeVariabilityRef = useRef(0.6);
   const minSizeRef = useRef(0.85);
   const maxSizeRef = useRef(2.2);
   const audioRef = useRef<AudioContext | null>(null);
+  const musicRef = useRef<MusicEngine | null>(null);
   const pausedRef = useRef(false);
   const [score, setScore] = useState(0);
   const [count, setCount] = useState(0);
   const [energy, setEnergy] = useState(78);
   const [blastPower, setBlastPower] = useState(50);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [musicEnabled, setMusicEnabled] = useState(true);
   const [sizeMix, setSizeMix] = useState(true);
   const [sizePanelOpen, setSizePanelOpen] = useState(false);
   const [sizeVariability, setSizeVariability] = useState(60);
@@ -356,12 +381,76 @@ export default function PaintMarbles() {
     }
   }, []);
 
-  const ensureAudio = () => {
-    if (!soundEnabledRef.current) return null;
+  const stopMusic = useCallback(() => {
+    const music = musicRef.current;
+    if (!music) return;
+    window.clearInterval(music.timer);
+    const now = audioRef.current?.currentTime ?? 0;
+    music.master.gain.cancelScheduledValues(now);
+    music.master.gain.setValueAtTime(Math.max(0.0001, music.master.gain.value), now);
+    music.master.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    window.setTimeout(() => music.master.disconnect(), 500);
+    musicRef.current = null;
+  }, []);
+
+  const startMusic = useCallback((audio: AudioContext) => {
+    if (!musicEnabledRef.current || musicRef.current || audio.state !== "running") return;
+    const master = audio.createGain();
+    master.gain.setValueAtTime(0.0001, audio.currentTime);
+    master.gain.exponentialRampToValueAtTime(0.115, audio.currentTime + 0.8);
+    master.connect(audio.destination);
+
+    const engine: MusicEngine = {
+      master,
+      timer: 0,
+      nextNoteTime: audio.currentTime + 0.08,
+      step: 0,
+    };
+    musicRef.current = engine;
+
+    const melodies: Array<Array<number | null>> = [
+      [261.63, null, 329.63, null, 392, null, 329.63, null, 293.66, null, 349.23, null, 329.63, null, null, null],
+      [261.63, null, 293.66, null, 329.63, null, 392, null, 440, null, 392, null, 329.63, null, null, null],
+      [329.63, null, 392, null, 440, null, 392, null, 293.66, null, 349.23, null, 261.63, null, null, null],
+      [261.63, null, 329.63, null, 349.23, null, 440, null, 392, null, 329.63, null, 293.66, null, null, null],
+    ];
+    const bass = [130.81, 110, 146.83, 98];
+    const stepDuration = 60 / 88 / 2;
+
+    const schedule = () => {
+      if (!musicEnabledRef.current || musicRef.current !== engine) return;
+      while (engine.nextNoteTime < audio.currentTime + 0.32) {
+        const index = engine.step % 16;
+        const bar = Math.floor(engine.step / 16) % melodies.length;
+        const note = melodies[bar][index];
+        if (note) scheduleMusicTone(audio, master, note, engine.nextNoteTime, 0.44, 0.12, "sine");
+        if (index % 4 === 0) {
+          scheduleMusicTone(audio, master, bass[bar], engine.nextNoteTime, 0.72, 0.075, "triangle");
+        }
+        if (index === 6 || index === 14) {
+          scheduleMusicTone(audio, master, note ? note * 2 : 523.25, engine.nextNoteTime, 0.24, 0.025, "sine");
+        }
+        engine.step += 1;
+        engine.nextNoteTime += stepDuration;
+      }
+    };
+    schedule();
+    engine.timer = window.setInterval(schedule, 100);
+  }, []);
+
+  const ensureAudio = useCallback(() => {
     if (!audioRef.current) audioRef.current = new AudioContext();
-    if (audioRef.current.state === "suspended") void audioRef.current.resume();
-    return audioRef.current;
-  };
+    const audio = audioRef.current;
+    const beginMusic = () => startMusic(audio);
+    if (audio.state === "suspended") void audio.resume().then(beginMusic);
+    else beginMusic();
+    return audio;
+  }, [startMusic]);
+
+  useEffect(() => () => {
+    stopMusic();
+    void audioRef.current?.close();
+  }, [stopMusic]);
 
   const playPop = useCallback((power: number) => {
     if (!soundEnabledRef.current) return;
@@ -782,6 +871,18 @@ export default function PaintMarbles() {
     }
   };
 
+  const toggleMusic = () => {
+    musicEnabledRef.current = !musicEnabledRef.current;
+    setMusicEnabled(musicEnabledRef.current);
+    if (musicEnabledRef.current) {
+      ensureAudio();
+      setHint("Background music is on");
+    } else {
+      stopMusic();
+      setHint("Background music is off");
+    }
+  };
+
   return (
     <main className="game-shell">
       <header className="topbar">
@@ -832,6 +933,14 @@ export default function PaintMarbles() {
             aria-label={soundEnabled ? "Mute popping sounds" : "Enable popping sounds"}
           >
             <span aria-hidden="true">♪</span> Sound
+          </button>
+          <button
+            className={`music-control${musicEnabled ? " is-active" : ""}`}
+            onClick={toggleMusic}
+            aria-pressed={musicEnabled}
+            aria-label={musicEnabled ? "Turn off background music" : "Turn on background music"}
+          >
+            <span aria-hidden="true">♫</span> Music
           </button>
           <div className="size-menu">
             <button
