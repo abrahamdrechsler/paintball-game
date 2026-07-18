@@ -291,10 +291,12 @@ export default function PaintMarbles() {
   const nextIdRef = useRef(0);
   const dragRef = useRef<{ id: number; lastX: number; lastY: number; lastTime: number } | null>(null);
   const energyRef = useRef(0.78);
+  const bigBlastRef = useRef(true);
   const pausedRef = useRef(false);
   const [score, setScore] = useState(0);
   const [count, setCount] = useState(0);
   const [energy, setEnergy] = useState(78);
+  const [bigBlast, setBigBlast] = useState(true);
   const [paused, setPaused] = useState(false);
   const [hint, setHint] = useState("Tap a rail to plant a spike");
 
@@ -335,6 +337,7 @@ export default function PaintMarbles() {
   }, [clearPaint, syncCount]);
 
   const explodeBall = useCallback((ball: Ball) => {
+    const blastScale = bigBlastRef.current ? 1.78 : 1;
     const paint = paintRef.current;
     const pctx = paint?.getContext("2d");
     if (pctx) {
@@ -342,7 +345,7 @@ export default function PaintMarbles() {
       const scaleY = paint!.height / sizeRef.current.height;
       pctx.save();
       pctx.scale(scaleX, scaleY);
-      drawSplat(pctx, ball.x, ball.y, ball.base, ball.r * 1.45);
+      drawSplat(pctx, ball.x, ball.y, ball.base, ball.r * 1.55 * blastScale);
       pctx.restore();
     }
 
@@ -351,19 +354,20 @@ export default function PaintMarbles() {
       const dx = other.x - ball.x;
       const dy = other.y - ball.y;
       const dist = Math.hypot(dx, dy);
-      const reach = ball.r * 3.8 + other.r;
+      const reach = ball.r * 3.8 * blastScale + other.r;
       if (dist < reach) {
         const intensity = clamp(1 - dist / reach, 0.18, 1);
         const len = dist || 1;
         localizePaint(other, { x: -dx / len, y: dy / len, z: 0.55 }, ball.base, intensity);
-        other.vx += (dx / len) * 190 * intensity;
-        other.vy += (dy / len) * 190 * intensity;
+        other.vx += (dx / len) * 190 * intensity * blastScale;
+        other.vy += (dy / len) * 190 * intensity * blastScale;
       }
     }
 
-    for (let i = 0; i < 58; i++) {
+    const particleCount = Math.round(58 * (bigBlastRef.current ? 1.55 : 1));
+    for (let i = 0; i < particleCount; i++) {
       const a = Math.random() * TAU;
-      const speed = 80 + Math.random() * 380;
+      const speed = (80 + Math.random() * 380) * Math.sqrt(blastScale);
       particlesRef.current.push({
         x: ball.x,
         y: ball.y,
@@ -639,6 +643,12 @@ export default function PaintMarbles() {
     setPaused(pausedRef.current);
   };
 
+  const toggleBigBlast = () => {
+    bigBlastRef.current = !bigBlastRef.current;
+    setBigBlast(bigBlastRef.current);
+    setHint(bigBlastRef.current ? "Big Blast is on — stand back" : "Compact splats are on");
+  };
+
   return (
     <main className="game-shell">
       <header className="topbar">
@@ -670,6 +680,14 @@ export default function PaintMarbles() {
               onChange={(event) => setEnergy(Number(event.target.value))}
             />
           </label>
+          <button
+            className={`blast-control${bigBlast ? " is-active" : ""}`}
+            onClick={toggleBigBlast}
+            aria-pressed={bigBlast}
+            aria-label={bigBlast ? "Disable Big Blast explosions" : "Enable Big Blast explosions"}
+          >
+            <span aria-hidden="true">✹</span> Big Blast
+          </button>
           <button className="icon-control" onClick={togglePaused} aria-label={paused ? "Resume game" : "Pause game"}>{paused ? "▶" : "Ⅱ"}</button>
           <button className="text-control" onClick={clearPaint}>Wipe paint</button>
           <button className="text-control" onClick={resetGame}>Reset</button>
