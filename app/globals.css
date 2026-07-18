@@ -109,10 +109,22 @@ button { color: inherit; }
 .primary-control b { display: inline-grid; place-items: center; min-width: 23px; height: 23px; margin-left: 3px; border-radius: 50%; background: var(--pink); color: white; font-size: 12px; }
 .icon-control { width: 43px; font-weight: 900; }
 .text-control { padding: 0 11px; font: 700 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
-.blast-control { padding: 0 11px; font: 800 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
-.blast-control span { display: inline-block; margin-right: 3px; font-size: 16px; vertical-align: -1px; }
-.controls .blast-control.is-active { background: var(--yellow); box-shadow: inset 0 0 0 2px rgba(255,255,255,.45); }
-.controls .blast-control.is-active:hover { background: #ffed8f; }
+.blast-range-control {
+  min-width: 128px;
+  height: 42px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1.5px solid var(--ink);
+  border-radius: 10px;
+  background: var(--yellow);
+  font: 800 9px/1 var(--font-geist-mono), monospace;
+  text-transform: uppercase;
+}
+.blast-range-control input { width: 66px; accent-color: #dc3f66; cursor: ew-resize; }
+.blast-range-control output { min-width: 20px; color: #8d2443; text-align: right; }
 .sound-control { padding: 0 10px; font: 800 10px/1 var(--font-geist-mono), monospace; text-transform: uppercase; white-space: nowrap; }
 .sound-control span { display: inline-block; margin-right: 3px; font-size: 17px; vertical-align: -1px; }
 .controls .sound-control.is-active { background: #82f0dc; box-shadow: inset 0 0 0 2px rgba(255,255,255,.5); }
@@ -221,11 +233,13 @@ button { color: inherit; }
   .score-card { min-width: 76px; height: 48px; padding: 5px 9px; }
   .score-card strong { font-size: 24px; }
   .controls { gap: 5px; }
-  .controls button, .motion-control { min-height: 40px; height: 40px; }
+  .controls button, .motion-control, .blast-range-control { min-height: 40px; height: 40px; }
   .size-menu { min-height: 40px; height: 40px; }
   .size-menu .size-control { width: 100%; }
   .motion-control { min-width: 112px; padding: 0 8px; }
   .motion-control input { width: 55px; }
+  .blast-range-control { min-width: 116px; padding: 0 7px; }
+  .blast-range-control input { width: 48px; }
   .primary-control { font-size: 12px; padding: 0 8px; }
   .board-wrap { border-radius: 17px; }
 }

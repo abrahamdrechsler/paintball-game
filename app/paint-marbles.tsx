@@ -326,7 +326,7 @@ export default function PaintMarbles() {
   const nextIdRef = useRef(0);
   const dragRef = useRef<{ id: number; lastX: number; lastY: number; lastTime: number } | null>(null);
   const energyRef = useRef(0.78);
-  const bigBlastRef = useRef(true);
+  const blastPowerRef = useRef(0.5);
   const soundEnabledRef = useRef(true);
   const sizeMixRef = useRef(true);
   const sizeVariabilityRef = useRef(0.6);
@@ -337,7 +337,7 @@ export default function PaintMarbles() {
   const [score, setScore] = useState(0);
   const [count, setCount] = useState(0);
   const [energy, setEnergy] = useState(78);
-  const [bigBlast, setBigBlast] = useState(true);
+  const [blastPower, setBlastPower] = useState(50);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [sizeMix, setSizeMix] = useState(true);
   const [sizePanelOpen, setSizePanelOpen] = useState(false);
@@ -363,7 +363,7 @@ export default function PaintMarbles() {
     return audioRef.current;
   };
 
-  const playPop = useCallback((big: boolean) => {
+  const playPop = useCallback((power: number) => {
     if (!soundEnabledRef.current) return;
     const audio = audioRef.current;
     if (!audio || audio.state !== "running") return;
@@ -376,11 +376,11 @@ export default function PaintMarbles() {
     const body = audio.createOscillator();
     const bodyGain = audio.createGain();
     body.type = Math.random() > 0.45 ? "sine" : "triangle";
-    body.frequency.setValueAtTime((big ? 175 : 215) * variation, now);
-    body.frequency.exponentialRampToValueAtTime((big ? 48 : 68) * variation, now + (big ? 0.18 : 0.13));
+    body.frequency.setValueAtTime((215 - power * 80) * variation, now);
+    body.frequency.exponentialRampToValueAtTime((68 - power * 30) * variation, now + 0.13 + power * 0.1);
     bodyGain.gain.setValueAtTime(0.0001, now);
-    bodyGain.gain.exponentialRampToValueAtTime(big ? 0.52 : 0.42, now + 0.006);
-    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + (big ? 0.24 : 0.17));
+    bodyGain.gain.exponentialRampToValueAtTime(0.42 + power * 0.2, now + 0.006);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.17 + power * 0.14);
     body.connect(bodyGain).connect(master);
     body.start(now);
     body.stop(now + 0.26);
@@ -396,7 +396,7 @@ export default function PaintMarbles() {
     snap.start(now);
     snap.stop(now + 0.09);
 
-    const noiseLength = Math.floor(audio.sampleRate * (big ? 0.28 : 0.19));
+    const noiseLength = Math.floor(audio.sampleRate * (0.19 + power * 0.18));
     const noiseBuffer = audio.createBuffer(1, noiseLength, audio.sampleRate);
     const noise = noiseBuffer.getChannelData(0);
     for (let i = 0; i < noise.length; i++) noise[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noise.length, 1.7);
@@ -407,8 +407,8 @@ export default function PaintMarbles() {
     filter.type = "bandpass";
     filter.frequency.value = (620 + Math.random() * 880) * variation;
     filter.Q.value = 0.55 + Math.random() * 0.85;
-    noiseGain.gain.setValueAtTime(big ? 0.28 : 0.2, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + (big ? 0.27 : 0.18));
+    noiseGain.gain.setValueAtTime(0.2 + power * 0.16, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18 + power * 0.18);
     splatter.connect(filter).connect(noiseGain).connect(master);
     splatter.start(now + Math.random() * 0.012);
   }, []);
@@ -450,8 +450,8 @@ export default function PaintMarbles() {
   }, [applyCurrentSizes, clearPaint, syncCount]);
 
   const explodeBall = useCallback((ball: Ball) => {
-    const blastScale = bigBlastRef.current ? 1.78 : 1;
-    playPop(bigBlastRef.current);
+    const blastScale = 0.75 + blastPowerRef.current * 2.06;
+    playPop(blastPowerRef.current);
     const paint = paintRef.current;
     const pctx = paint?.getContext("2d");
     if (pctx) {
@@ -478,7 +478,7 @@ export default function PaintMarbles() {
       }
     }
 
-    const particleCount = Math.round(58 * (bigBlastRef.current ? 1.55 : 1));
+    const particleCount = Math.round(44 + blastPowerRef.current * 92);
     for (let i = 0; i < particleCount; i++) {
       const a = Math.random() * TAU;
       const speed = (80 + Math.random() * 380) * Math.sqrt(blastScale);
@@ -502,6 +502,10 @@ export default function PaintMarbles() {
   useEffect(() => {
     energyRef.current = energy / 100;
   }, [energy]);
+
+  useEffect(() => {
+    blastPowerRef.current = blastPower / 100;
+  }, [blastPower]);
 
   useEffect(() => {
     sizeMixRef.current = sizeMix;
@@ -767,12 +771,6 @@ export default function PaintMarbles() {
     setPaused(pausedRef.current);
   };
 
-  const toggleBigBlast = () => {
-    bigBlastRef.current = !bigBlastRef.current;
-    setBigBlast(bigBlastRef.current);
-    setHint(bigBlastRef.current ? "Big Blast is on — stand back" : "Compact splats are on");
-  };
-
   const toggleSound = () => {
     soundEnabledRef.current = !soundEnabledRef.current;
     setSoundEnabled(soundEnabledRef.current);
@@ -815,14 +813,18 @@ export default function PaintMarbles() {
               onChange={(event) => setEnergy(Number(event.target.value))}
             />
           </label>
-          <button
-            className={`blast-control${bigBlast ? " is-active" : ""}`}
-            onClick={toggleBigBlast}
-            aria-pressed={bigBlast}
-            aria-label={bigBlast ? "Disable Big Blast explosions" : "Enable Big Blast explosions"}
-          >
-            <span aria-hidden="true">✹</span> Big Blast
-          </button>
+          <label className="blast-range-control">
+            <span>Blast</span>
+            <input
+              aria-label="Explosion blast power"
+              type="range"
+              min="0"
+              max="100"
+              value={blastPower}
+              onChange={(event) => setBlastPower(Number(event.target.value))}
+            />
+            <output>{blastPower}</output>
+          </label>
           <button
             className={`sound-control${soundEnabled ? " is-active" : ""}`}
             onClick={toggleSound}
